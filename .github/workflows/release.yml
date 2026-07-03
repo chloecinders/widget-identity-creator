@@ -22,7 +22,7 @@ jobs:
           - os: macos-latest
             artifact_name: widget-identity-creator-macos
             asset_name: widget-identity-creator-macos.dmg
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             artifact_name: widget-identity-creator-linux
             asset_name: widget-identity-creator-x86_64.AppImage
 
@@ -41,6 +41,8 @@ jobs:
 
       - name: Set up Cargo cache
         uses: Swatinem/rust-cache@v2
+        with:
+          key: v2-${{ matrix.os }}
 
       - name: Build release binary
         run: cargo build --release
