@@ -85,6 +85,14 @@ pub fn validate_sample_data(config_json: &str, sample_data: &str) -> Vec<String>
         }
     };
 
+    let required_specs = extract_dynamic_fields(config_json);
+    if required_specs.is_empty() {
+        if sample.get("data").and_then(|d| d.as_object()).is_none() {
+            errors.push("Sample data must contain a 'data' object (e.g. {\"data\":{}}).".to_string());
+        }
+        return errors;
+    }
+
     let dynamic_arr = match sample
         .get("data")
         .and_then(|d| d.get("dynamic"))

@@ -79,6 +79,9 @@ impl eframe::App for WidgetIdentityCreatorApp {
                 self.state.widget.receiver = None;
                 match res {
                     Ok(json) => {
+                        if crate::validator::extract_dynamic_fields(&json).is_empty() {
+                            self.state.widget.sample_data = "{\"data\":{}}".to_string();
+                        }
                         self.state.widget.config_json = json;
                         self.state.widget.error = String::new();
                     }
@@ -327,8 +330,19 @@ impl eframe::App for WidgetIdentityCreatorApp {
                                         ui.end_row();
                                     }
                                 });
+
                                 ui.add_space(10.0);
                                 ui.label("Raw Sample Data JSON:");
+                            } else if !self.state.widget.config_json.is_empty() {
+                                if self.state.widget.sample_data.is_empty() {
+                                    self.state.widget.sample_data = "{\"data\":{}}".to_string();
+                                }
+
+                                ui.label("Sample Data:");
+                                ui.label(
+                                    RichText::new("No dynamic fields found in config, no sample data required!")
+                                        .weak(),
+                                );
                             } else {
                                 ui.label("Sample Data:");
                             }
