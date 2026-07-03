@@ -5,6 +5,12 @@ Why is this a desktop app? Because the alternative would be to make a website wh
 
 Please see https://chloecinders.com/blog/discord-widgets for the full Discord widget guide.
 
+### Download
+https://github.com/chloecinders/widget-identity-creator/releases
+
+### Build from Source
+Make sure you have the latest version of Rust installed: https://rustup.rs/. This includes both rustc and cargo. If you are on Linux also make sure you have the correct dependencies for eframe, the UI framework: https://crates.io/crates/eframe. Then run `cargo build --release`, which will deposit the binary into the target folder.
+
 ### macOS Note
 Because this app is open source and not distributed via the Mac App Store or a paid Apple Developer certificate, macOS Gatekeeper may show a warning saying the app is damaged. To run it, strip the quarantine flag via Terminal:
 ```bash
