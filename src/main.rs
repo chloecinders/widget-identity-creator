@@ -309,6 +309,53 @@ impl eframe::App for WidgetIdentityCreatorApp {
                                         );
                                     });
                                 });
+
+                            ui.add_space(8.0);
+                            if self.state.widget.fetching {
+                                ui.horizontal(|ui| {
+                                    ui.spinner();
+                                    ui.label("Refreshing widget configuration...");
+                                });
+                            } else {
+                                if ui.button("Refresh Widget Config").clicked() {
+                                    self.state.widget.fetching = true;
+                                    self.state.widget.error = String::new();
+                                    let app_id = self.state.token.details.as_ref().map(|d| d.app_id.clone()).unwrap_or_default();
+                                    let token = self.state.token.token.clone();
+                                    let ctx = ui.ctx().clone();
+                                    let (tx, rx) = mpsc::channel();
+                                    self.state.widget.receiver = Some(rx);
+
+                                    std::thread::spawn(move || {
+                                        let client = reqwest::blocking::Client::new();
+                                        let url = format!("https://discord.com/api/v10/applications/{app_id}/widget-configs");
+                                        let res = client
+                                            .get(&url)
+                                            .header("Authorization", format!("Bot {token}"))
+                                            .send();
+
+                                        let result = match res {
+                                            Ok(resp) => {
+                                                if resp.status().is_success() {
+                                                    match resp.json::<serde_json::Value>() {
+                                                        Ok(val) => match serde_json::to_string_pretty(&val) {
+                                                            Ok(pretty) => Ok(pretty),
+                                                            Err(_) => Ok(val.to_string()),
+                                                        },
+                                                        Err(err) => Err(format!("Failed to parse JSON: {err}")),
+                                                    }
+                                                } else {
+                                                    Err(format!("Discord API returned error: {}", resp.status()))
+                                                }
+                                            }
+                                            Err(err) => Err(format!("Request failed: {err}")),
+                                        };
+
+                                        let _ = tx.send(result);
+                                        ctx.request_repaint();
+                                    });
+                                }
+                            }
                         });
 
                         cols[1].vertical(|ui| {
@@ -335,7 +382,7 @@ impl eframe::App for WidgetIdentityCreatorApp {
                                 ui.label("Raw Sample Data JSON:");
                             } else if !self.state.widget.config_json.is_empty() {
                                 if self.state.widget.sample_data.is_empty() {
-                                    self.state.widget.sample_data = "{\"data\":{}}".to_string();
+                                    self.state.widget.sample_data = "{\"data\":{\"dynamic\":[]}}".to_string();
                                 }
 
                                 ui.label("Sample Data:");
