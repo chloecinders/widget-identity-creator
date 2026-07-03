@@ -227,10 +227,10 @@ fn validate_dynamic_entry(
                 errors.push(format!("Field '{val_name}' must have a string 'value'"));
             }
         }
-        "number" => {
+        "number" | "float" | "integer" | "double" | "decimal" => {
             if type_val != Some(2) {
                 errors.push(format!(
-                    "Field '{val_name}' has presentation_type 'number' so 'type' must be 2 (found {type_val:?})"
+                    "Field '{val_name}' has presentation_type '{pres_type}' so 'type' must be 2 (found {type_val:?})"
                 ));
             }
             if value_val.map_or(true, |v| !v.is_number()) {
@@ -325,7 +325,7 @@ pub fn get_field_value(sample_data: &str, name: &str, pres_type: &str) -> String
                     .and_then(|u| u.as_str())
                     .unwrap_or("")
                     .to_string();
-            } else if pres_type == "number" {
+            } else if matches!(pres_type, "number" | "float" | "integer" | "double" | "decimal") {
                 match entry.get("value") {
                     Some(Value::Number(n)) => return n.to_string(),
                     Some(Value::String(s)) => return s.clone(),
@@ -383,7 +383,7 @@ pub fn update_sample_data(sample_data: &mut String, name: &str, pres_type: &str,
         None => {
             let new_entry = match pres_type {
                 "image" => serde_json::json!({ "name": name, "type": 3, "value": { "url": "" } }),
-                "number" => serde_json::json!({ "name": name, "type": 2, "value": 0 }),
+                "number" | "float" | "integer" | "double" | "decimal" => serde_json::json!({ "name": name, "type": 2, "value": 0 }),
                 _ => serde_json::json!({ "name": name, "type": 1, "value": "" }),
             };
             arr.push(new_entry);
@@ -402,10 +402,14 @@ pub fn update_sample_data(sample_data: &mut String, name: &str, pres_type: &str,
                 target_entry["value"]["url"] = serde_json::Value::String(new_val.to_string());
             }
         }
-        "number" => {
+        "number" | "float" | "integer" | "double" | "decimal" => {
             target_entry["type"] = serde_json::json!(2);
             if let Ok(num) = new_val.parse::<f64>() {
-                if num.fract() == 0.0
+                if pres_type != "float"
+                    && pres_type != "double"
+                    && pres_type != "decimal"
+                    && !new_val.contains('.')
+                    && num.fract() == 0.0
                     && let Ok(i) = new_val.parse::<i64>()
                 {
                     target_entry["value"] = serde_json::Value::Number(i.into());

@@ -281,6 +281,8 @@ impl eframe::App for WidgetIdentityCreatorApp {
                 if !self.state.widget.config_json.is_empty() {
                     ui.separator();
 
+                    ui.label("Your existing widget configuration is now displayed on the left. Fill out the right side, either by filling out the field inputs or putting in your generated JSON from the widget config editor.");
+
                     ui.columns(2, |cols| {
                         cols[0].vertical(|ui| {
                             ui.label("Found Widget Configuration:");
