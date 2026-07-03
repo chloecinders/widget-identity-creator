@@ -76,7 +76,8 @@ jobs:
               <string>0.1.0</string>
           </dict>
           </plist>
-          EOF
+          chmod +x "Widget Identity Creator.app/Contents/MacOS/widget-identity-creator"
+          codesign --force --deep -s - "Widget Identity Creator.app"
           hdiutil create -volname "Widget Identity Creator" -srcfolder "Widget Identity Creator.app" -ov -format UDZO widget-identity-creator-macos.dmg
 
       - name: Create Linux AppImage

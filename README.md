@@ -5,4 +5,10 @@ Why is this a desktop app? Because the alternative would be to make a website wh
 
 Please see https://chloecinders.com/blog/discord-widgets for the full Discord widget guide.
 
+### macOS Note
+Because this app is open source and not distributed via the Mac App Store or a paid Apple Developer certificate, macOS Gatekeeper may show a warning saying the app is damaged. To run it, strip the quarantine flag via Terminal:
+```bash
+xattr -cr /Applications/"Widget Identity Creator.app"
+```
+
 <img width="1018" height="925" alt="image" src="https://github.com/user-attachments/assets/4aef5744-6938-4e7b-8439-035549194fd3" />
