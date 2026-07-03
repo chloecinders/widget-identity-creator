@@ -1,0 +1,129 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: widget-identity-creator-windows
+            asset_name: widget-identity-creator-windows-x86_64.exe
+          - os: macos-latest
+            artifact_name: widget-identity-creator-macos
+            asset_name: widget-identity-creator-macos.dmg
+          - os: ubuntu-latest
+            artifact_name: widget-identity-creator-linux
+            asset_name: widget-identity-creator-x86_64.AppImage
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcursor-dev libxrandr-dev libxi-dev libx11-dev libgl1-mesa-dev libxext-dev
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Prepare Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item target/release/widget-identity-creator.exe -Destination widget-identity-creator-windows-x86_64.exe
+
+      - name: Prepare macOS binary (.app and .dmg)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p "Widget Identity Creator.app/Contents/MacOS"
+          mkdir -p "Widget Identity Creator.app/Contents/Resources"
+          cp target/release/widget-identity-creator "Widget Identity Creator.app/Contents/MacOS/"
+          cat << 'EOF' > "Widget Identity Creator.app/Contents/Info.plist"
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>widget-identity-creator</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.widgetidentitycreator.app</string>
+              <key>CFBundleName</key>
+              <string>Widget Identity Creator</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>0.1.0</string>
+          </dict>
+          </plist>
+          EOF
+          hdiutil create -volname "Widget Identity Creator" -srcfolder "Widget Identity Creator.app" -ov -format UDZO widget-identity-creator-macos.dmg
+
+      - name: Create Linux AppImage
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p AppDir/usr/bin
+          cp target/release/widget-identity-creator AppDir/usr/bin/
+          cat << 'EOF' > AppDir/widget-identity-creator.desktop
+          [Desktop Entry]
+          Name=Widget Identity Creator
+          Exec=widget-identity-creator
+          Icon=widget-identity-creator
+          Type=Application
+          Categories=Utility;
+          EOF
+          touch AppDir/widget-identity-creator.png
+          cat << 'EOF' > AppDir/AppRun
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "${0}")")"
+          exec "$HERE/usr/bin/widget-identity-creator" "$@"
+          EOF
+          chmod +x AppDir/AppRun
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run AppDir widget-identity-creator-x86_64.AppImage
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.asset_name }}
+
+  release:
+    name: Create Draft Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create Draft Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: dist/*
+          tag_name: dev-${{ github.run_id }}
+          name: Draft Release (Run ${{ github.run_id }})
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
