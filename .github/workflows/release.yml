@@ -34,7 +34,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxcursor-dev libxrandr-dev libxi-dev libx11-dev libgl1-mesa-dev libxext-dev
+          sudo apt-get install -y libxcursor-dev libxrandr-dev libxi-dev libx11-dev libgl1-mesa-dev libxext-dev libfuse2 file desktop-file-utils
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -102,7 +102,8 @@ jobs:
           chmod +x AppDir/AppRun
           wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
-          ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run AppDir widget-identity-creator-x86_64.AppImage
+          ./appimagetool-x86_64.AppImage --appimage-extract
+          ARCH=x86_64 ./squashfs-root/AppRun AppDir widget-identity-creator-x86_64.AppImage
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
