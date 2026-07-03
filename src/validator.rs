@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
@@ -19,7 +19,7 @@ pub fn validate_widget_config(config_json: &str) -> Vec<String> {
         vec![config]
     };
 
-    let mut seen_config_fields = HashSet::new();
+    let mut seen_config_fields = HashMap::new();
 
     for config_obj in configs {
         if let Some(surfaces) = config_obj.get("surfaces").and_then(|s| s.as_object()) {
@@ -37,15 +37,23 @@ pub fn validate_widget_config(config_json: &str) -> Vec<String> {
                                         .get("value")
                                         .and_then(|v| v.as_str())
                                         .unwrap_or("");
+                                    let pres_type = field_val
+                                        .get("presentation_type")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
 
                                     if val_name.is_empty() {
                                         continue;
                                     }
 
-                                    if !seen_config_fields.insert(val_name.to_string()) {
-                                        errors.push(format!(
-                                            "Duplicate data field '{val_name}' found in widget configuration (in {surface_name}.{comp_name}.{field_name}). The widget configuration has multiple data fields with the same name, which will cause issues!"
-                                        ));
+                                    if let Some(existing_type) = seen_config_fields.get(val_name) {
+                                        if existing_type != pres_type {
+                                            errors.push(format!(
+                                                "Data field '{val_name}' is defined multiple times in widget configuration with conflicting presentation types ('{existing_type}' vs '{pres_type}' in {surface_name}.{comp_name}.{field_name})."
+                                            ));
+                                        }
+                                    } else {
+                                        seen_config_fields.insert(val_name.to_string(), pres_type.to_string());
                                     }
                                 }
                             }
