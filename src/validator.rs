@@ -24,7 +24,8 @@ pub fn validate_widget_config(config_json: &str) -> Vec<String> {
     for config_obj in configs {
         if let Some(surfaces) = config_obj.get("surfaces").and_then(|s| s.as_object()) {
             for (surface_name, surface_val) in surfaces {
-                if let Some(components) = surface_val.get("components").and_then(|c| c.as_object()) {
+                if let Some(components) = surface_val.get("components").and_then(|c| c.as_object())
+                {
                     for (comp_name, comp_val) in components {
                         if let Some(fields) = comp_val.get("fields").and_then(|f| f.as_object()) {
                             for (field_name, field_val) in fields {
@@ -53,7 +54,8 @@ pub fn validate_widget_config(config_json: &str) -> Vec<String> {
                                             ));
                                         }
                                     } else {
-                                        seen_config_fields.insert(val_name.to_string(), pres_type.to_string());
+                                        seen_config_fields
+                                            .insert(val_name.to_string(), pres_type.to_string());
                                     }
                                 }
                             }
@@ -85,14 +87,6 @@ pub fn validate_sample_data(config_json: &str, sample_data: &str) -> Vec<String>
         }
     };
 
-    let required_specs = extract_dynamic_fields(config_json);
-    if required_specs.is_empty() {
-        if sample.get("data").and_then(|d| d.as_object()).is_none() {
-            errors.push("Sample data must contain a 'data' object (e.g. {\"data\":{}}).".to_string());
-        }
-        return errors;
-    }
-
     let dynamic_arr = match sample
         .get("data")
         .and_then(|d| d.get("dynamic"))
@@ -100,7 +94,10 @@ pub fn validate_sample_data(config_json: &str, sample_data: &str) -> Vec<String>
     {
         Some(arr) => arr,
         None => {
-            errors.push("Sample data is missing the 'data.dynamic' array.".to_string());
+            errors.push(
+                "Sample data is missing the 'data.dynamic' array ({\"data\":{\"dynamic\":[]}})."
+                    .to_string(),
+            );
             return errors;
         }
     };
@@ -325,7 +322,10 @@ pub fn get_field_value(sample_data: &str, name: &str, pres_type: &str) -> String
                     .and_then(|u| u.as_str())
                     .unwrap_or("")
                     .to_string();
-            } else if matches!(pres_type, "number" | "float" | "integer" | "double" | "decimal") {
+            } else if matches!(
+                pres_type,
+                "number" | "float" | "integer" | "double" | "decimal"
+            ) {
                 match entry.get("value") {
                     Some(Value::Number(n)) => return n.to_string(),
                     Some(Value::String(s)) => return s.clone(),
@@ -383,7 +383,9 @@ pub fn update_sample_data(sample_data: &mut String, name: &str, pres_type: &str,
         None => {
             let new_entry = match pres_type {
                 "image" => serde_json::json!({ "name": name, "type": 3, "value": { "url": "" } }),
-                "number" | "float" | "integer" | "double" | "decimal" => serde_json::json!({ "name": name, "type": 2, "value": 0 }),
+                "number" | "float" | "integer" | "double" | "decimal" => {
+                    serde_json::json!({ "name": name, "type": 2, "value": 0 })
+                }
                 _ => serde_json::json!({ "name": name, "type": 1, "value": "" }),
             };
             arr.push(new_entry);
@@ -443,4 +445,29 @@ pub fn get_widget_config_info(config_json: &str) -> Option<(String, String)> {
     let config_id = config_obj.get("config_id")?.as_str()?.to_string();
     let status = config_obj.get("status")?.as_str()?.to_string();
     Some((config_id, status))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_sample_data_no_dynamic_fields() {
+        let config = r#"{"surfaces":{}}"#;
+        let invalid_sample = r#"{"data":{}}"#;
+        let valid_sample = r#"{"data":{"dynamic":[]}}"#;
+
+        let errors = validate_sample_data(config, invalid_sample);
+        assert!(
+            !errors.is_empty(),
+            "Expected error for sample without dynamic array"
+        );
+        assert!(errors[0].contains("data.dynamic"));
+
+        let errors = validate_sample_data(config, valid_sample);
+        assert!(
+            errors.is_empty(),
+            "Expected no errors for sample with dynamic array"
+        );
+    }
 }

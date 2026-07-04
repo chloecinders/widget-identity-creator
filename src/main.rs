@@ -80,7 +80,8 @@ impl eframe::App for WidgetIdentityCreatorApp {
                 match res {
                     Ok(json) => {
                         if crate::validator::extract_dynamic_fields(&json).is_empty() {
-                            self.state.widget.sample_data = "{\"data\":{}}".to_string();
+                            self.state.widget.sample_data =
+                                "{\"data\":{\"dynamic\":[]}}".to_string();
                         }
                         self.state.widget.config_json = json;
                         self.state.widget.error = String::new();
