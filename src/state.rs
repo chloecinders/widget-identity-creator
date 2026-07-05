@@ -5,6 +5,7 @@ pub struct ApplicationDetails {
     pub app_id: String,
     pub owner_id: String,
     pub app_name: String,
+    pub flags: u64,
 }
 
 #[derive(Default)]

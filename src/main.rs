@@ -51,6 +51,7 @@ struct AppInfoResponse {
     owner: Option<AppOwner>,
     team: Option<AppTeam>,
     name: String,
+    flags: u64,
 }
 
 impl eframe::App for WidgetIdentityCreatorApp {
@@ -149,7 +150,7 @@ impl eframe::App for WidgetIdentityCreatorApp {
                 ui.label(RichText::new(self.state.token.error.clone()).color(Color32::RED));
             }
 
-            if self.state.token.fetching {
+            if self.state.token.fetching && !self.state.token.token_confirmed {
                 ui.horizontal(|ui| {
                     ui.spinner();
                     ui.label("Fetching application details...");
@@ -189,6 +190,7 @@ impl eframe::App for WidgetIdentityCreatorApp {
                                                     app_id: info.id,
                                                     app_name: info.name,
                                                     owner_id,
+                                                    flags: info.flags,
                                                 })
                                             }
                                             Err(err) => Err(format!("Failed to parse application details: {err}")),
@@ -209,59 +211,137 @@ impl eframe::App for WidgetIdentityCreatorApp {
 
             if self.state.token.token_confirmed {
                 let app_id = self.state.token.details.as_ref().map(|d| d.app_id.clone()).unwrap_or_default();
-                if let Some(details) = &mut self.state.token.details {
-                    ui.add_enabled_ui(false, |ui| {
-                        ui.label("Application Name:");
-                        ui.text_edit_singleline(&mut details.app_name);
-                        ui.label("Application ID:");
-                        ui.text_edit_singleline(&mut details.app_id);
+                let has_social_sdk = self
+                    .state
+                    .token
+                    .details
+                    .as_ref()
+                    .map_or(false, |d| (d.flags & (1 << 10)) != 0);
+
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        if let Some(details) = &mut self.state.token.details {
+                            ui.add_enabled_ui(false, |ui| {
+                                ui.label("Application Name:");
+                                ui.text_edit_singleline(&mut details.app_name);
+                                ui.label("Application ID:");
+                                ui.text_edit_singleline(&mut details.app_id);
+                            });
+
+                            ui.add_enabled_ui(!self.state.token.confirmed, |ui| {
+                                ui.label("User ID:");
+                                ui.text_edit_singleline(&mut details.owner_id);
+                            });
+                        }
                     });
 
-                    ui.add_enabled_ui(!self.state.token.confirmed, |ui| {
-                        ui.label("User ID:");
-                        ui.text_edit_singleline(&mut details.owner_id);
-                    });
-                }
+                    if !has_social_sdk {
+                        ui.add_space(20.0);
+                        ui.vertical(|ui| {
+                            ui.label(RichText::new("Missing Social SDK Access").color(Color32::RED).strong());
+                            ui.label("Your application must have access to the Social SDK to proceed.");
+                            let url = format!("https://discord.com/developers/applications/{app_id}/social-sdk/getting-started");
+                            ui.hyperlink_to("Get Started with Social SDK", &url);
+                            ui.add_space(8.0);
+                            if self.state.token.fetching {
+                                ui.horizontal(|ui| {
+                                    ui.spinner();
+                                    ui.label("Refreshing access...");
+                                });
+                            } else if ui.button("Refresh Access").clicked() {
+                                self.state.token.error = String::new();
+                                self.state.token.fetching = true;
+                                let token = self.state.token.token.clone();
+                                let ctx = ui.ctx().clone();
+                                let (tx, rx) = mpsc::channel();
+                                self.state.token.receiver = Some(rx);
+
+                                std::thread::spawn(move || {
+                                    let client = reqwest::blocking::Client::new();
+                                    let res = client
+                                        .get("https://discord.com/api/v10/oauth2/applications/@me")
+                                        .header("Authorization", format!("Bot {token}"))
+                                        .send();
+
+                                    let result = match res {
+                                        Ok(resp) => {
+                                            if resp.status().is_success() {
+                                                match resp.json::<AppInfoResponse>() {
+                                                    Ok(info) => {
+                                                        println!("{}", info.flags);
+
+                                                        let owner_id = if let Some(owner) = info.owner {
+                                                            owner.id
+                                                        } else if let Some(team) = info.team {
+                                                            team.owner_user_id
+                                                        } else {
+                                                            String::from("Unknown")
+                                                        };
+                                                        Ok(ApplicationDetails {
+                                                            app_id: info.id,
+                                                            app_name: info.name,
+                                                            owner_id,
+                                                            flags: info.flags,
+                                                        })
+                                                    }
+                                                    Err(err) => Err(format!("Failed to parse application details: {err}")),
+                                                }
+                                            } else {
+                                                Err(format!("Discord API returned error: {}", resp.status()))
+                                            }
+                                        }
+                                        Err(err) => Err(format!("Request failed: {err}")),
+                                    };
+
+                                    let _ = tx.send(result);
+                                    ctx.request_repaint();
+                                });
+                            }
+                        });
+                    }
+                });
 
                 ui.horizontal(|ui| {
                     if !self.state.token.confirmed {
-                        if ui.button("Confirm").clicked() {
-                            self.state.token.confirmed = true;
-                            self.state.widget.fetching = true;
-                            let token = self.state.token.token.clone();
-                            let ctx = ui.ctx().clone();
-                            let (tx, rx) = mpsc::channel();
-                            self.state.widget.receiver = Some(rx);
+                        ui.add_enabled_ui(has_social_sdk, |ui| {
+                            if has_social_sdk && ui.button("Confirm").clicked() {
+                                self.state.token.confirmed = true;
+                                self.state.widget.fetching = true;
+                                let token = self.state.token.token.clone();
+                                let ctx = ui.ctx().clone();
+                                let (tx, rx) = mpsc::channel();
+                                self.state.widget.receiver = Some(rx);
 
-                            std::thread::spawn(move || {
-                                let client = reqwest::blocking::Client::new();
-                                let url = format!("https://discord.com/api/v10/applications/{app_id}/widget-configs");
-                                let res = client
-                                    .get(&url)
-                                    .header("Authorization", format!("Bot {token}"))
-                                    .send();
+                                std::thread::spawn(move || {
+                                    let client = reqwest::blocking::Client::new();
+                                    let url = format!("https://discord.com/api/v10/applications/{app_id}/widget-configs");
+                                    let res = client
+                                        .get(&url)
+                                        .header("Authorization", format!("Bot {token}"))
+                                        .send();
 
-                                let result = match res {
-                                    Ok(resp) => {
-                                        if resp.status().is_success() {
-                                            match resp.json::<serde_json::Value>() {
-                                                Ok(val) => match serde_json::to_string_pretty(&val) {
-                                                    Ok(pretty) => Ok(pretty),
-                                                    Err(_) => Ok(val.to_string()),
-                                                },
-                                                Err(err) => Err(format!("Failed to parse JSON: {err}")),
+                                    let result = match res {
+                                        Ok(resp) => {
+                                            if resp.status().is_success() {
+                                                match resp.json::<serde_json::Value>() {
+                                                    Ok(val) => match serde_json::to_string_pretty(&val) {
+                                                        Ok(pretty) => Ok(pretty),
+                                                        Err(_) => Ok(val.to_string()),
+                                                    },
+                                                    Err(err) => Err(format!("Failed to parse JSON: {err}")),
+                                                }
+                                            } else {
+                                                Err(format!("Discord API returned error: {}", resp.status()))
                                             }
-                                        } else {
-                                            Err(format!("Discord API returned error: {}", resp.status()))
                                         }
-                                    }
-                                    Err(err) => Err(format!("Request failed: {err}")),
-                                };
+                                        Err(err) => Err(format!("Request failed: {err}")),
+                                    };
 
-                                let _ = tx.send(result);
-                                ctx.request_repaint();
-                            });
-                        }
+                                    let _ = tx.send(result);
+                                    ctx.request_repaint();
+                                });
+                            }
+                        });
                     }
                     if ui.button("Reset").clicked() {
                         self.state = Default::default();
@@ -282,7 +362,7 @@ impl eframe::App for WidgetIdentityCreatorApp {
                 if !self.state.widget.config_json.is_empty() {
                     ui.separator();
 
-                    ui.label("Your existing widget configuration is now displayed on the left. Fill out the right side, either by filling out the field inputs or putting in your generated JSON from the widget config editor.");
+                    ui.label("Your existing widget configuration is now displayed on the left. Fill out the right side, either by filling out the field inputs or putting in your generated JSON from the widget config editor. Press the apply button below the sample data field after you have resolved all validaton errors to apply the identity.");
 
                     ui.columns(2, |cols| {
                         cols[0].vertical(|ui| {
@@ -300,14 +380,14 @@ impl eframe::App for WidgetIdentityCreatorApp {
 
                             egui::ScrollArea::vertical()
                                 .id_salt("config_scroll")
-                                .min_scrolled_height(400.0)
-                                .max_height(500.0)
+                                .min_scrolled_height(150.0)
+                                .max_height(200.0)
                                 .show(ui, |ui| {
                                     ui.add_enabled_ui(false, |ui| {
                                         ui.add(
                                             egui::TextEdit::multiline(&mut self.state.widget.config_json)
                                                 .desired_width(f32::INFINITY)
-                                                .desired_rows(20)
+                                                .desired_rows(8)
                                                 .code_editor(),
                                         );
                                     });
@@ -383,7 +463,7 @@ impl eframe::App for WidgetIdentityCreatorApp {
 
                                 ui.add_space(10.0);
                                 ui.label("Raw Sample Data JSON:");
-                            } else if !self.state.widget.config_json.is_empty() {
+                            } else if !self.state.widget.config_json.is_empty() && self.state.widget.config_json != "[]" {
                                 if self.state.widget.sample_data.is_empty() {
                                     self.state.widget.sample_data = "{\"data\":{\"dynamic\":[]}}".to_string();
                                 }
@@ -399,13 +479,13 @@ impl eframe::App for WidgetIdentityCreatorApp {
 
                             egui::ScrollArea::vertical()
                                 .id_salt("sample_scroll")
-                                .min_scrolled_height(300.0)
-                                .max_height(400.0)
+                                .min_scrolled_height(150.0)
+                                .max_height(200.0)
                                 .show(ui, |ui| {
                                     ui.add(
                                         egui::TextEdit::multiline(&mut self.state.widget.sample_data)
                                             .desired_width(f32::INFINITY)
-                                            .desired_rows(20)
+                                            .desired_rows(8)
                                             .code_editor(),
                                     );
                                 });
@@ -415,13 +495,81 @@ impl eframe::App for WidgetIdentityCreatorApp {
                                     RichText::new("Please insert the sample JSON data from the widget editor or fill in the fields using the dynamic fields editor above!")
                                         .color(Color32::YELLOW),
                                 );
-                            } else if !self.state.widget.config_json.is_empty() {
+                            } else if !self.state.widget.config_json.is_empty() && self.state.widget.config_json != "[]" {
                                 let errors = crate::validator::validate_sample_data(
                                     &self.state.widget.config_json,
                                     &self.state.widget.sample_data,
                                 );
                                 if errors.is_empty() {
                                     ui.label(RichText::new("Sample data matches widget config requirements!").color(Color32::GREEN));
+                                    ui.add_space(8.0);
+                                    if self.state.widget.applying {
+                                        ui.horizontal(|ui| {
+                                            ui.spinner();
+                                            ui.label("Applying sample data to application identity...");
+                                        });
+                                    } else {
+                                        if ui.button("Apply to Application Identity").clicked() {
+                                            self.state.widget.applying = true;
+                                            self.state.widget.apply_success = None;
+                                            self.state.widget.apply_error = None;
+
+                                            let app_id = self.state.token.details.as_ref().map(|d| d.app_id.clone()).unwrap_or_default();
+                                            let user_id = self.state.token.details.as_ref().map(|d| d.owner_id.clone()).unwrap_or_default();
+                                            let token = self.state.token.token.clone();
+                                            let sample_data = self.state.widget.sample_data.clone();
+                                            let ctx = ui.ctx().clone();
+                                            let (tx, rx) = mpsc::channel();
+                                            self.state.widget.apply_receiver = Some(rx);
+
+                                            std::thread::spawn(move || {
+                                                let client = reqwest::blocking::Client::new();
+                                                let url = format!("https://discord.com/api/v9/applications/{app_id}/users/{user_id}/identities/0/profile");
+                                                let res = client
+                                                    .patch(&url)
+                                                    .header("Content-Type", "application/json")
+                                                    .header("Authorization", format!("Bot {token}"))
+                                                    .body(sample_data)
+                                                    .send();
+
+                                                let result = match res {
+                                                    Ok(resp) => {
+                                                        if resp.status().is_success() {
+                                                            Ok(String::from("Application identity updated successfully!"))
+                                                        } else {
+                                                            let status = resp.status();
+                                                            let body = resp.text().unwrap_or_else(|_| String::from("No response body"));
+                                                            Err(format!("Discord API error ({status}): {body}"))
+                                                        }
+                                                    }
+                                                    Err(err) => Err(format!("Request failed: {err}")),
+                                                };
+
+                                                let _ = tx.send(result);
+                                                ctx.request_repaint();
+                                            });
+                                        }
+                                    }
+
+                                    if let Some(msg) = &self.state.widget.apply_success {
+                                        ui.label(RichText::new(msg).color(Color32::GREEN).strong());
+                                    }
+                                    if let Some(err) = &self.state.widget.apply_error {
+                                        if err.contains("50025") || err.contains("Invalid OAuth2 access token") {
+                                            ui.add_space(4.0);
+                                            ui.label(RichText::new("Error: Invalid OAuth2 access token (code 50025)").color(Color32::RED).strong());
+                                            ui.label(RichText::new("Please complete the application's Social SDK application form in the Discord Developer Portal.").color(Color32::YELLOW));
+
+                                            let app_id = self.state.token.details.as_ref().map(|d| d.app_id.clone()).unwrap_or_default();
+                                            let mut auth_url = format!("https://discord.com/oauth2/authorize?client_id={app_id}&response_type=token&scope=sdk.social_layer_presence");
+
+                                            ui.label("Then authorize your application using the URL below:");
+                                            ui.hyperlink_to("Open Authorization URL in Browser", &auth_url);
+                                            ui.text_edit_singleline(&mut auth_url);
+                                        } else {
+                                            ui.label(RichText::new(err).color(Color32::RED));
+                                        }
+                                    }
                                 } else {
                                     ui.label(RichText::new("Validation Errors:").color(Color32::RED).strong());
 
@@ -433,88 +581,10 @@ impl eframe::App for WidgetIdentityCreatorApp {
                         });
                     });
 
-                    ui.add_space(12.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
-                    if !self.state.widget.sample_data.is_empty() {
-                        let errors = crate::validator::validate_sample_data(
-                            &self.state.widget.config_json,
-                            &self.state.widget.sample_data,
-                        );
-                        if errors.is_empty() {
-                            if self.state.widget.applying {
-                                ui.horizontal(|ui| {
-                                    ui.spinner();
-                                    ui.label("Applying sample data to application identity...");
-                                });
-                            } else {
-                                if ui.button("Apply to Application Identity").clicked() {
-                                    self.state.widget.applying = true;
-                                    self.state.widget.apply_success = None;
-                                    self.state.widget.apply_error = None;
-
-                                    let app_id = self.state.token.details.as_ref().map(|d| d.app_id.clone()).unwrap_or_default();
-                                    let user_id = self.state.token.details.as_ref().map(|d| d.owner_id.clone()).unwrap_or_default();
-                                    let token = self.state.token.token.clone();
-                                    let sample_data = self.state.widget.sample_data.clone();
-                                    let ctx = ui.ctx().clone();
-                                    let (tx, rx) = mpsc::channel();
-                                    self.state.widget.apply_receiver = Some(rx);
-
-                                    std::thread::spawn(move || {
-                                        let client = reqwest::blocking::Client::new();
-                                        let url = format!("https://discord.com/api/v9/applications/{app_id}/users/{user_id}/identities/0/profile");
-                                        let res = client
-                                            .patch(&url)
-                                            .header("Content-Type", "application/json")
-                                            .header("Authorization", format!("Bot {token}"))
-                                            .body(sample_data)
-                                            .send();
-
-                                        let result = match res {
-                                            Ok(resp) => {
-                                                if resp.status().is_success() {
-                                                    Ok(String::from("Application identity updated successfully!"))
-                                                } else {
-                                                    let status = resp.status();
-                                                    let body = resp.text().unwrap_or_else(|_| String::from("No response body"));
-                                                    Err(format!("Discord API error ({status}): {body}"))
-                                                }
-                                            }
-                                            Err(err) => Err(format!("Request failed: {err}")),
-                                        };
-
-                                        let _ = tx.send(result);
-                                        ctx.request_repaint();
-                                    });
-                                }
-                            }
-
-                            if let Some(msg) = &self.state.widget.apply_success {
-                                ui.label(RichText::new(msg).color(Color32::GREEN).strong());
-                            }
-                            if let Some(err) = &self.state.widget.apply_error {
-                                if err.contains("50025") || err.contains("Invalid OAuth2 access token") {
-                                    ui.add_space(4.0);
-                                    ui.label(RichText::new("Error: Invalid OAuth2 access token (code 50025)").color(Color32::RED).strong());
-                                    ui.label(RichText::new("Please complete the application's Social SDK application form in the Discord Developer Portal.").color(Color32::YELLOW));
-
-                                    let app_id = self.state.token.details.as_ref().map(|d| d.app_id.clone()).unwrap_or_default();
-                                    let mut auth_url = format!("https://discord.com/oauth2/authorize?client_id={app_id}&response_type=token&scope=sdk.social_layer_presence");
-
-                                    ui.label("Then authorize your application using the URL below:");
-                                    ui.hyperlink_to("Open Authorization URL in Browser", &auth_url);
-                                    ui.text_edit_singleline(&mut auth_url);
-                                } else {
-                                    ui.label(RichText::new(err).color(Color32::RED));
-                                }
-                            }
-                        }
-                    }
-
                     if let Some((config_id, status)) = crate::validator::get_widget_config_info(&self.state.widget.config_json) {
                         if status.eq_ignore_ascii_case("draft") {
+                            ui.add_space(12.0);
+                            ui.separator();
                             ui.add_space(8.0);
                             ui.label(RichText::new("Warning: This widget config is currently in 'draft' status and widgets will only be visible to the applications developers.").color(Color32::YELLOW).strong());
 
