@@ -22,7 +22,7 @@ jobs:
           - os: macos-latest
             artifact_name: widget-identity-creator-macos-apple-silicon
             asset_name: Widget-Identity-Creator-Mac-Apple-Silicon.dmg
-          - os: macos-13
+          - os: macos-26-intel
             artifact_name: widget-identity-creator-macos-intel
             asset_name: Widget-Identity-Creator-Mac-Intel.dmg
           - os: ubuntu-22.04
