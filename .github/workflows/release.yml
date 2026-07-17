@@ -18,13 +18,16 @@ jobs:
         include:
           - os: windows-latest
             artifact_name: widget-identity-creator-windows
-            asset_name: widget-identity-creator-windows-x86_64.exe
+            asset_name: Widget-Identity-Creator-Windows.exe
           - os: macos-latest
-            artifact_name: widget-identity-creator-macos
-            asset_name: widget-identity-creator-macos.dmg
+            artifact_name: widget-identity-creator-macos-apple-silicon
+            asset_name: Widget-Identity-Creator-Mac-Apple-Silicon.dmg
+          - os: macos-13
+            artifact_name: widget-identity-creator-macos-intel
+            asset_name: Widget-Identity-Creator-Mac-Intel.dmg
           - os: ubuntu-22.04
             artifact_name: widget-identity-creator-linux
-            asset_name: widget-identity-creator-x86_64.AppImage
+            asset_name: Widget-Identity-Creator-Linux.AppImage
 
     steps:
       - name: Checkout repository
@@ -51,9 +54,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Copy-Item target/release/widget-identity-creator.exe -Destination widget-identity-creator-windows-x86_64.exe
+          Copy-Item target/release/widget-identity-creator.exe -Destination ${{ matrix.asset_name }}
 
-      - name: Prepare macOS binary (.app and .dmg)
+      - name: Prepare macOS binary
         if: runner.os == 'macOS'
         run: |
           mkdir -p "Widget Identity Creator.app/Contents/MacOS"
@@ -79,7 +82,7 @@ jobs:
           EOF
           chmod +x "Widget Identity Creator.app/Contents/MacOS/widget-identity-creator"
           codesign --force --deep -s - "Widget Identity Creator.app"
-          hdiutil create -volname "Widget Identity Creator" -srcfolder "Widget Identity Creator.app" -ov -format UDZO widget-identity-creator-macos.dmg
+          hdiutil create -volname "Widget Identity Creator" -srcfolder "Widget Identity Creator.app" -ov -format UDZO ${{ matrix.asset_name }}
 
       - name: Create Linux AppImage
         if: runner.os == 'Linux'
@@ -104,7 +107,7 @@ jobs:
           wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           ./appimagetool-x86_64.AppImage --appimage-extract
-          ARCH=x86_64 ./squashfs-root/AppRun AppDir widget-identity-creator-x86_64.AppImage
+          ARCH=x86_64 ./squashfs-root/AppRun AppDir ${{ matrix.asset_name }}
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
